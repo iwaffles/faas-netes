@@ -35,6 +35,9 @@ gateway:
   nodePort: 31112
   maxIdleConns: 1024
   maxIdleConnsPerHost: 1024
+  service:
+    external:
+      annotations:
 
 queueWorker:
   image: openfaas/queue-worker:0.7.2
