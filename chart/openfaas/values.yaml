@@ -37,6 +37,7 @@ gateway:
   maxIdleConnsPerHost: 1024
   service:
     external:
+      port: 443
       annotations:
 
 queueWorker:

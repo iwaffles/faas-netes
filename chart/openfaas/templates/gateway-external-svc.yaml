@@ -18,7 +18,7 @@ metadata:
 spec:
   type: {{ .Values.serviceType }}
   ports:
-    - port: 8080
+    - port: {{ default 8080 .Values.gateway.service.external.port}}
       protocol: TCP
       targetPort: 8080
       {{- if contains "NodePort" .Values.serviceType }}
