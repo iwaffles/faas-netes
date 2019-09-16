@@ -1,5 +1,5 @@
 ---
-apiVersion: apps/v1beta1 # for versions before 1.6.0 use extensions/v1beta1
+apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   labels:
@@ -20,8 +20,9 @@ spec:
       containers:
       - name:  nats
         resources:
-          requests:
-            memory: "120Mi"
+            requests:
+              memory: 120Mi
+            
         image: nats-streaming:0.11.2
         imagePullPolicy: Always
         ports:

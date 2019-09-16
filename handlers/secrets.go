@@ -8,14 +8,13 @@ import (
 	"log"
 	"net/http"
 
-	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
-
-	"github.com/openfaas/faas/gateway/requests"
+	types "github.com/openfaas/faas-provider/types"
+	appsv1 "k8s.io/api/apps/v1beta2"
 	apiv1 "k8s.io/api/core/v1"
-	v1beta1 "k8s.io/api/extensions/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
 )
 
 const (
@@ -60,9 +59,9 @@ func getSecretsHandler(kube typedV1.SecretInterface, w http.ResponseWriter, r *h
 		return
 	}
 
-	secrets := []requests.Secret{}
+	secrets := []types.Secret{}
 	for _, item := range res.Items {
-		secret := requests.Secret{
+		secret := types.Secret{
 			Name: item.Name,
 		}
 		secrets = append(secrets, secret)
@@ -150,7 +149,7 @@ func deleteSecretHandler(kube typedV1.SecretInterface, namespace string, w http.
 
 func parseSecret(namespace string, r io.Reader) (*apiv1.Secret, error) {
 	body, _ := ioutil.ReadAll(r)
-	req := requests.Secret{}
+	req := types.Secret{}
 	err := json.Unmarshal(body, &req)
 	if err != nil {
 		return nil, err
@@ -173,7 +172,7 @@ func parseSecret(namespace string, r io.Reader) (*apiv1.Secret, error) {
 }
 
 // getSecrets queries Kubernetes for a list of secrets by name in the given k8s namespace.
-func getSecrets(clientset *kubernetes.Clientset, namespace string, secretNames []string) (map[string]*apiv1.Secret, error) {
+func getSecrets(clientset kubernetes.Interface, namespace string, secretNames []string) (map[string]*apiv1.Secret, error) {
 	secrets := map[string]*apiv1.Secret{}
 
 	for _, secretName := range secretNames {
@@ -191,7 +190,7 @@ func getSecrets(clientset *kubernetes.Clientset, namespace string, secretNames [
 // in the kubernetes cluster.  For each requested secret, we inspect the type and add it to the
 // deployment spec as appropriat: secrets with type `SecretTypeDockercfg/SecretTypeDockerjson`
 // are added as ImagePullSecrets all other secrets are mounted as files in the deployments containers.
-func UpdateSecrets(request requests.CreateFunctionRequest, deployment *v1beta1.Deployment, existingSecrets map[string]*apiv1.Secret) error {
+func UpdateSecrets(request types.FunctionDeployment, deployment *appsv1.Deployment, existingSecrets map[string]*apiv1.Secret) error {
 	// Add / reference pre-existing secrets within Kubernetes
 	secretVolumeProjections := []apiv1.VolumeProjection{}
 
@@ -319,6 +318,8 @@ func isNotFound(err error) bool {
 // processErrorReasons maps k8serrors.ReasonForError to http status codes
 func processErrorReasons(err error) (int, metav1.StatusReason) {
 	switch {
+	case k8serrors.IsAlreadyExists(err):
+		return http.StatusConflict, metav1.StatusReasonAlreadyExists
 	case k8serrors.ReasonForError(err) == metav1.StatusReasonConflict:
 		return http.StatusConflict, metav1.StatusReasonConflict
 	case k8serrors.ReasonForError(err) == metav1.StatusReasonInvalid:

@@ -1,5 +1,5 @@
 {{- $functionNs := default .Release.Namespace .Values.functionNamespace }}
-apiVersion: apps/v1beta1 # for versions before 1.6.0 use extensions/v1beta1
+apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   labels:
@@ -34,9 +34,7 @@ spec:
       containers:
       - name: gateway
         resources:
-          requests:
-            memory: "120Mi"
-            cpu: "50m"
+          {{- .Values.gateway.resources | toYaml | nindent 12 }}
         image: {{ .Values.gateway.image }}
         imagePullPolicy: {{ .Values.openfaasImagePullPolicy }}
         {{- if .Values.securityContext }}
@@ -45,6 +43,11 @@ spec:
           runAsUser: 10001
         {{- end }}
         livenessProbe:
+          {{- if .Values.httpProbe }}
+          httpGet:
+            path: /healthz
+            port: 8080
+          {{- else }}
           exec:
             command:
             - wget
@@ -53,8 +56,14 @@ spec:
             - --timeout=5
             - --spider
             - http://localhost:8080/healthz
+          {{- end }}
           timeoutSeconds: 5
         readinessProbe:
+          {{- if .Values.httpProbe }}
+          httpGet:
+            path: /healthz
+            port: 8080
+          {{- else }}
           exec:
             command:
             - wget
@@ -63,6 +72,7 @@ spec:
             - --timeout=5
             - --spider
             - http://localhost:8080/healthz
+          {{- end }}
           timeoutSeconds: 5
         env:
         - name: read_timeout
@@ -88,6 +98,10 @@ spec:
           value: "true"
         - name: secret_mount_path
           value: "/var/secrets"
+        - name: auth_proxy_url
+          value: "http://basic-auth-plugin.{{ .Release.Namespace }}:8080/validate"
+        - name: auth_pass_body
+          value: "false"
         {{- end }}
         - name: scale_from_zero
           value: "{{ .Values.gateway.scaleFromZero }}"
@@ -108,9 +122,7 @@ spec:
       {{- if .Values.operator.create }}
       - name: operator
         resources:
-          requests:
-            memory: "120Mi"
-            cpu: "50m"
+          {{- .Values.operator.resources | toYaml | nindent 12 }}
         image: {{ .Values.operator.image }}
         imagePullPolicy: {{ .Values.openfaasImagePullPolicy }}
         command:
@@ -118,25 +130,46 @@ spec:
           - -logtostderr
           - -v=2
         env:
-        - name: function_namespace
-          value: {{ $functionNs | quote }}
-        - name: read_timeout
-          value: "{{ .Values.faasnetes.readTimeout }}"
-        - name: write_timeout
-          value: "{{ .Values.faasnetes.writeTimeout }}"
-        - name: image_pull_policy
-          value: {{ .Values.faasnetes.imagePullPolicy | quote }}
+          - name: port
+            value: "8081"
+          - name: function_namespace
+            value: {{ $functionNs | quote }}
+          - name: read_timeout
+            value: "{{ .Values.faasnetes.readTimeout }}"
+          - name: write_timeout
+            value: "{{ .Values.faasnetes.writeTimeout }}"
+          - name: image_pull_policy
+            value: {{ .Values.faasnetes.imagePullPolicy | quote }}
+          - name: http_probe
+            value: "{{ .Values.faasnetes.httpProbe }}"
+          - name: set_nonroot_user
+            value: "{{ .Values.faasnetes.setNonRootUser }}"
+          - name: readiness_probe_initial_delay_seconds
+            value: "{{ .Values.faasnetes.readinessProbe.initialDelaySeconds }}"
+          - name: readiness_probe_timeout_seconds
+            value: "{{ .Values.faasnetes.readinessProbe.timeoutSeconds }}"
+          - name: readiness_probe_period_seconds
+            value: "{{ .Values.faasnetes.readinessProbe.periodSeconds }}"
+          - name: liveness_probe_initial_delay_seconds
+            value: "{{ .Values.faasnetes.livenessProbe.initialDelaySeconds }}"
+          - name: liveness_probe_timeout_seconds
+            value: "{{ .Values.faasnetes.livenessProbe.timeoutSeconds }}"
+          - name: liveness_probe_period_seconds
+            value: "{{ .Values.faasnetes.livenessProbe.periodSeconds }}"
         ports:
         - containerPort: 8081
           protocol: TCP
       {{- else }}
       - name: faas-netes
         resources:
-          requests:
-            memory: "120Mi"
-            cpu: "50m"
+          {{- .Values.faasnetes.resources | toYaml | nindent 12 }}
         image: {{ .Values.faasnetes.image }}
         imagePullPolicy: {{ .Values.openFaasImagePullPolicy }}
+        {{- if .Values.securityContext }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsUser: 10001
+        {{- end }}
         env:
         - name: port
           value: "8081"

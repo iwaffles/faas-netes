@@ -1,5 +1,5 @@
 ---
-apiVersion: apps/v1beta1 # for versions before 1.6.0 use extensions/v1beta1
+apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   labels:
@@ -25,33 +25,24 @@ spec:
       containers:
       - name: gateway
         resources:
-          requests:
-            memory: "120Mi"
-            cpu: "50m"
-        image: openfaas/gateway:0.13.0
+            requests:
+              cpu: 50m
+              memory: 120Mi
+            
+        image: openfaas/gateway:0.17.0
         imagePullPolicy: Always
         securityContext:
           readOnlyRootFilesystem: true
           runAsUser: 10001
         livenessProbe:
-          exec:
-            command:
-            - wget
-            - --quiet
-            - --tries=1
-            - --timeout=5
-            - --spider
-            - http://localhost:8080/healthz
+          httpGet:
+            path: /healthz
+            port: 8080
           timeoutSeconds: 5
         readinessProbe:
-          exec:
-            command:
-            - wget
-            - --quiet
-            - --tries=1
-            - --timeout=5
-            - --spider
-            - http://localhost:8080/healthz
+          httpGet:
+            path: /healthz
+            port: 8080
           timeoutSeconds: 5
         env:
         - name: read_timeout
@@ -74,6 +65,10 @@ spec:
           value: "true"
         - name: secret_mount_path
           value: "/var/secrets"
+        - name: auth_proxy_url
+          value: "http://basic-auth-plugin.openfaas:8080/validate"
+        - name: auth_pass_body
+          value: "false"
         - name: scale_from_zero
           value: "true"
         - name: max_idle_conns
@@ -90,11 +85,15 @@ spec:
           protocol: TCP
       - name: faas-netes
         resources:
-          requests:
-            memory: "120Mi"
-            cpu: "50m"
-        image: openfaas/faas-netes:0.7.5
+            requests:
+              cpu: 50m
+              memory: 120Mi
+            
+        image: openfaas/faas-netes:0.8.6
         imagePullPolicy: 
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsUser: 10001
         env:
         - name: port
           value: "8081"
@@ -107,21 +106,21 @@ spec:
         - name: image_pull_policy
           value: "Always"
         - name: http_probe
-          value: "false"
+          value: "true"
         - name: set_nonroot_user
           value: "false"
         - name: readiness_probe_initial_delay_seconds
-          value: "0"
+          value: "2"
         - name: readiness_probe_timeout_seconds
           value: "1"
         - name: readiness_probe_period_seconds
-          value: "1"
+          value: "2"
         - name: liveness_probe_initial_delay_seconds
-          value: "3"
+          value: "2"
         - name: liveness_probe_timeout_seconds
           value: "1"
         - name: liveness_probe_period_seconds
-          value: "10"
+          value: "2"
         ports:
         - containerPort: 8081
           protocol: TCP

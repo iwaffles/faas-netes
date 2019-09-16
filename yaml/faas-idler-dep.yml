@@ -21,8 +21,9 @@ spec:
         - name: faas-idler
           resources:
             requests:
-              memory: "64Mi"
-          image: openfaas/faas-idler:0.1.9
+              memory: 64Mi
+            
+          image: openfaas/faas-idler:0.2.1
           imagePullPolicy: Always
           env:
             - name: gateway_url

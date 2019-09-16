@@ -4,21 +4,24 @@
 
 [OpenFaaS](https://github.com/openfaas/faas) (Functions as a Service) is a framework for building serverless functions with Docker and Kubernetes which has first class support for metrics. Any process can be packaged as a function enabling you to consume a range of web events without repetitive boiler-plate coding.
 
-**Highlights**
+## Highlights
 
 * Ease of use through UI portal and *one-click* install
 * Write functions in any language for Linux or Windows and package in Docker/OCI image format
-* Portable - runs on existing hardware or public/private cloud - [Kubernetes](https://github.com/openfaas/faas-netes) and Docker Swarm native
-* [CLI](http://github.com/openfaas/faas-cli) available with YAML format for templating and defining functions
-* Auto-scales as demand increases
-* Scales to zero and back again
-* Compatible with [Istio Service Mesh](https://istio.io). mTLS supported via `exec` health checks.
+* Portable - runs on existing hardware or public/private cloud. Native [Kubernetes](https://github.com/openfaas/faas-netes) support, Docker Swarm also available
+* [Operator / CRD option available](https://github.com/openfaas-incubator/openfaas-operator/)
+* [faas-cli](http://github.com/openfaas/faas-cli) available with stack.yml for creating and managing functions
+* Auto-scales according to metrics from Prometheus
+* Scales to zero and back again and can be tuned at a per-function level
+* Works with service-mesh
+    * Tested with [Istio](https://istio.io) including mTLS
+    * Tested with [Linkerd2](https://github.com/openfaas-incubator/openfaas-linkerd2) including mTLS
 
 ## Deploy OpenFaaS
 
-**Note:** You must also pass `--set rbac=false` if your cluster is not configured with role-based access control. For further information, see [here](https://kubernetes.io/docs/admin/authorization/rbac/).
+**Note:** If your cluster is not configured with role-based access control, then pass `--set rbac=false`. For further information, see [Kubernetes: RBAC](https://kubernetes.io/docs/admin/authorization/rbac/).
 
-**Note:** If you can not use helm with Tiller, [skip below](#deployment-with-helm-template) for alternative install instructions.
+**Note:** If you can not use helm with Tiller, you can still use the `helm` CLI to [generate custom YAML](#deployment-with-helm-template) without server-side components.
 
 ---
 ### Install
@@ -70,12 +73,44 @@ helm repo update \
 
 > The above command will also update your helm repo to pull in any new releases.
 
+#### Tuning cold-start
+
+The concept of a cold-start in OpenFaaS only applies if you A) use faas-idler and B) set a specific function to scale to zero.
+
+There are two ways to reduce the Kubernetes cold-start for a pre-pulled image, which is 1-2 seconds.
+
+1) Don't set the function to scale down to zero, just set it a minimum availability i.e. 1/1 replicas
+2) Use async invocations via the `/async/function/<name>` route
+3) Tune the readinessProbes to be aggressively low values. This will reduce the cold-start at the cost of more `kubelet` CPU usage
+
+To achieve around 1s coldstart, set `values.yaml`:
+
+```yaml
+faasnetes:
+
+# redacted
+  readinessProbe:
+    initialDelaySeconds: 0
+    timeoutSeconds: 1
+    periodSeconds: 1
+  livenessProbe:
+    initialDelaySeconds: 0
+    timeoutSeconds: 1
+    periodSeconds: 1
+# redacted
+  imagePullPolicy: "IfNotPresent"    # Image pull policy for deployed functions
+```
+
+You should also set `imagePullPolicy` to `IfNotPresent` so that the `kubelet` only pulls images which are not already available.
+
+#### httpProbe vs. execProbe
+
 A note on health-checking probes for functions:
 
-* httpProbe - most efficient, currently incompatible with Istio
-* execProbe - least efficient health-checking, but most compatible
+* httpProbe - (`default`) most efficient. (compatible with Istio >= 1.1.5)
+* execProbe - least efficient option, but compatible with Istio < 1.1.5
 
-If you want to switch from "exec" liveness and readiness probes to httpProbes then use `--set faasnetes.httpProbe=true`, this can only be used with `--set operator.create=false`.
+Use `--set faasnetes.httpProbe=true/false` to toggle between http / exec probes.
 
 ### Verify the installation
 
@@ -122,17 +157,20 @@ This option is good for those that have issues with installing Tiller, the serve
     git clone https://github.com/openfaas/faas-netes.git
 
 2. Render the chart to a Kubernetes manifest called `openfaas.yaml`
+    ```sh
     helm template faas-netes/chart/openfaas \
         --name openfaas \
         --namespace openfaas  \
         --set basic_auth=true \
         --set functionNamespace=openfaas-fn > $HOME/openfaas.yaml
-
+    ```
     You can set the values and overrides just as you would in the install/upgrade commands above.
 
 3. Install the components using `kubectl`
+    ```sh
     kubectl apply -f faas-netes/namespaces.yml
     kubectl apply -f $HOME/openfaas.yaml
+    ```
 
 Now [verify your installation](#verify-the-installation).
 
@@ -141,7 +179,7 @@ Now [verify your installation](#verify-the-installation).
 You can run the following command from within the `faas-netes/chart` folder in the `faas-netes` repo.
 
 ```sh
-helm upgrade --install openfaas openfaas/ \
+helm upgrade --install openfaas openfaas/openfaas \
     --namespace openfaas  \
     --set basic_auth=true \
     --set functionNamespace=openfaas-fn
@@ -181,6 +219,25 @@ By default services will be exposed with following hostnames (can be changed, se
 
 If you require TLS/SSL then please make use of an IngressController. A full guide is provided to [enable TLS for the OpenFaaS Gateway using cert-manager and Let's Encrypt](https://docs.openfaas.com/reference/ssl/kubernetes-with-cert-manager/).
 
+### Istio mTLS
+
+To install OpenFaaS with Istio mTLS pass  `--set istio.mtls=true` and disable the HTTP probes:
+
+```
+helm upgrade openfaas --install chart/openfaas \
+    --namespace openfaas  \
+    --set basic_auth=true \
+    --set functionNamespace=openfaas-fn \
+    --set exposeServices=false \
+    --set faasnetes.httpProbe=false \
+    --set httpProbe=false \
+    --set istio.mtls=true
+```
+
+The above command will enable mTLS for the openfaas control plane services and functions excluding NATS.
+
+> Note that the above instructions were tested on GKE 1.13 and Istio 1.2
+
 ## Zero scale
 
 ### Scale-up from zero (on by default)
@@ -217,6 +274,8 @@ Additional OpenFaaS options in `values.yaml`.
 | `serviceType` | Type of external service to use `NodePort/LoadBalancer` | `NodePort` |
 | `basic_auth` | Enable basic authentication on the Gateway | `true` |
 | `rbac` | Enable RBAC | `true` |
+| `httpProbe` | Setting to true will use HTTP for readiness and liveness probe on the OpenFaaS system Pods (compatible with Istio >= 1.1.5) | `true` |
+| `psp` | Enable [Pod Security Policy](https://kubernetes.io/docs/concepts/policy/pod-security-policy/) for OpenFaaS accounts | `false` |
 | `securityContext` | Deploy with a `securityContext` set, this can be disabled for use with Istio sidecar injection | `true` |
 | `openfaasImagePullPolicy` | Image pull policy for openfaas components, can change to `IfNotPresent` in offline env | `Always` |
 | `kubernetesDNSDomain` | Domain name of the Kubernetes cluster | `cluster.local` |
@@ -244,6 +303,7 @@ Additional OpenFaaS options in `values.yaml`.
 | `faasIdler.dryRun` | When set to false the OpenFaaS API will be called to scale down idle functions, by default this is set to only print in the logs. | `true` |
 | `prometheus.create` | Create the Prometheus component | `true` |
 | `alertmanager.create` | Create the AlertManager component | `true` |
+| `istio.mtls` | Create Istio policies and destination rules to enforce mTLS for OpenFaaS components and functions | `false` |
 
 
 Specify each parameter using the `--set key=value[,key=value]` argument to `helm install`.
